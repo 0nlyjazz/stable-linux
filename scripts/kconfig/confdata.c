@@ -139,10 +139,10 @@ static int conf_touch_dep(const char *name)
 	strcpy(depfile_path + depfile_prefix_len, name);
 
 	fd = open(depfile_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-
-	close(fd);
 	if (fd == -1)
 		return -1;
+	close(fd);
+
 	return 0;
 }
 
@@ -214,6 +214,13 @@ static const char *conf_get_autoheader_name(void)
 	char *name = getenv("KCONFIG_AUTOHEADER");
 
 	return name ? name : "include/generated/autoconf.h";
+}
+
+static const char *conf_get_rustccfg_name(void)
+{
+	char *name = getenv("KCONFIG_RUSTCCFG");
+
+	return name ? name : "include/generated/rustc_cfg";
 }
 
 static int conf_set_sym_val(struct symbol *sym, int def, int def_flags, char *p)
@@ -603,6 +610,9 @@ static const struct comment_style comment_style_c = {
 
 static void conf_write_heading(FILE *fp, const struct comment_style *cs)
 {
+	if (!cs)
+		return;
+
 	fprintf(fp, "%s\n", cs->prefix);
 
 	fprintf(fp, "%s Automatically generated file; DO NOT EDIT.\n",
@@ -682,6 +692,7 @@ static void __print_symbol(FILE *fp, struct symbol *sym, enum output_n output_n,
 			fprintf(fp, "# %s%s is not set\n", CONFIG_, sym->name);
 		return;
 	}
+
 	if (sym->type == S_STRING && escape_string) {
 		escaped = escape_string_value(val);
 		val = escaped;
@@ -747,6 +758,65 @@ static void print_symbol_for_c(FILE *fp, struct symbol *sym)
 		val_prefix, val);
 
 	free(escaped);
+}
+
+static void print_symbol_for_rustccfg(FILE *fp, struct symbol *sym)
+{
+	const char *val;
+	const char *val_prefix = "";
+	char *val_prefixed = NULL;
+	size_t val_prefixed_len;
+	char *escaped = NULL;
+
+	if (sym->type == S_UNKNOWN)
+		return;
+
+	val = sym_get_string_value(sym);
+
+	switch (sym->type) {
+	case S_BOOLEAN:
+	case S_TRISTATE:
+		/*
+		 * We do not care about disabled ones, i.e. no need for
+		 * what otherwise are "comments" in other printers.
+		 */
+		if (*val == 'n')
+			return;
+
+		/*
+		 * To have similar functionality to the C macro `IS_ENABLED()`
+		 * we provide an empty `--cfg CONFIG_X` here in both `y`
+		 * and `m` cases.
+		 *
+		 * Then, the common `fprintf()` below will also give us
+		 * a `--cfg CONFIG_X="y"` or `--cfg CONFIG_X="m"`, which can
+		 * be used as the equivalent of `IS_BUILTIN()`/`IS_MODULE()`.
+		 */
+		fprintf(fp, "--cfg=%s%s\n", CONFIG_, sym->name);
+		break;
+	case S_HEX:
+		if (val[0] != '0' || (val[1] != 'x' && val[1] != 'X'))
+			val_prefix = "0x";
+		break;
+	default:
+		break;
+	}
+
+	if (strlen(val_prefix) > 0) {
+		val_prefixed_len = strlen(val) + strlen(val_prefix) + 1;
+		val_prefixed = xmalloc(val_prefixed_len);
+		snprintf(val_prefixed, val_prefixed_len, "%s%s", val_prefix, val);
+		val = val_prefixed;
+	}
+
+	/* All values get escaped: the `--cfg` option only takes strings */
+	escaped = escape_string_value(val);
+	val = escaped;
+
+	fprintf(fp, "--cfg=%s%s=%s\n", CONFIG_, sym->name, val);
+
+	free(escaped);
+	free(val_prefixed);
 }
 
 /*
@@ -965,6 +1035,7 @@ static int conf_write_autoconf_cmd(const char *autoconf_name)
 		perror("fopen");
 		return -1;
 	}
+
 	fprintf(out, "deps_config := \\\n");
 	for (file = file_list; file; file = file->next)
 		fprintf(out, "\t%s \\\n", file->name);
@@ -1124,9 +1195,16 @@ int conf_write_autoconf(int overwrite)
 
 	for_all_symbols(i, sym)
 		sym_calc_value(sym);
+
 	ret = __conf_write_autoconf(conf_get_autoheader_name(),
 				    print_symbol_for_c,
 				    &comment_style_c);
+	if (ret)
+		return ret;
+
+	ret = __conf_write_autoconf(conf_get_rustccfg_name(),
+				    print_symbol_for_rustccfg,
+				    NULL);
 	if (ret)
 		return ret;
 
