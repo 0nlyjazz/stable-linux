@@ -6,10 +6,10 @@ use kernel::prelude::*;
 
 module! {
     type: RustMinimal,
-    name: b"rust_minimal",
-    author: b"Rust for Linux Contributors",
-    description: b"Rust minimal sample",
-    license: b"GPL",
+    name: "rust_minimal",
+    author: "Rust for Linux Contributors",
+    description: "Rust minimal sample",
+    license: "GPL",
 }
 
 struct RustMinimal {
@@ -18,8 +18,8 @@ struct RustMinimal {
 
 impl kernel::Module for RustMinimal {
     fn init(_module: &'static ThisModule) -> Result<Self> {
-        pr_info!("Rust: Minimal sample (init)\n");
-        pr_info!("Rust: Am I built-in? {}\n", !cfg!(MODULE));
+        pr_info!("Rust minimal sample (init)\n");
+        pr_info!("Am I built-in? {}\n", !cfg!(MODULE));
 
         let mut numbers = Vec::new();
         numbers.try_push(72)?;
@@ -32,7 +32,7 @@ impl kernel::Module for RustMinimal {
 
 impl Drop for RustMinimal {
     fn drop(&mut self) {
-        pr_info!("Rust: My numbers are {:?}\n", self.numbers);
-        pr_info!("Rust: Minimal sample (exit)\n");
+        pr_info!("My numbers are {:?}\n", self.numbers);
+        pr_info!("Rust minimal sample (exit)\n");
     }
 }
